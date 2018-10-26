@@ -1,0 +1,7 @@
+@isTest
+public class myProcessInstanceWorkitemsControllerTest {
+    @isTest(Seealldata=true)
+    static void testMethod1() {
+        myProcessInstanceWorkitemsController.getMyProcessInstanceWorkitemList();
+    }
+}
