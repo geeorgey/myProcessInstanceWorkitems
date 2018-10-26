@@ -1,0 +1,5 @@
+<aura:component controller="myProcessInstanceWorkitemsController" implements="flexipage:availableForAllPageTypes" access="global" >
+    <aura:handler name="init" value="{!this}" action="{!c.doInit}"/>
+    <aura:attribute name="myProcessInstanceWorkitems" type="String"/>
+    <aura:unescapedHtml value="{!v.myProcessInstanceWorkitems}" />
+</aura:component>
