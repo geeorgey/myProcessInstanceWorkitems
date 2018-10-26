@@ -1,0 +1,116 @@
+public class myProcessInstanceWorkitemsController {
+
+    @AuraEnabled
+    public static String getMyProcessInstanceWorkitemList(){
+
+        Id myid = UserInfo.getUserId();
+        //自分が担当になっている承認申請を取得する
+        LIST<ProcessInstance> myPW = new LIST<ProcessInstance>();
+        myPW = [SELECT Id, Status ,TargetObjectId,LastActorId ,ElapsedTimeInHours ,ElapsedTimeInMinutes ,ElapsedTimeInDays , (SELECT Id, ActorId, ProcessInstanceId FROM Workitems WHERE ActorId = :myid) FROM ProcessInstance WHERE Status = 'Pending' ORDER BY ElapsedTimeInHours DESC];
+
+        //Workitemsが入ってないProcessInstanceを排除する
+        LIST<ProcessInstance> myPWhasWorkitems = new LIST<ProcessInstance>();
+        if(myPW.size()>0){
+            for(ProcessInstance p : myPW){
+                    if(p.Workitems.size()>0){
+                        myPWhasWorkitems.add(p);
+                    }                
+            }
+        }
+
+        //最終的な出力はStringにして返す
+        LIST<String> myPWStrings = new LIST<String>();
+            if(myPWhasWorkitems.size()>0){
+                myPWStrings.add('<article class="slds-card">');
+                myPWStrings.add('<div class="slds-card__header slds-grid">');
+                myPWStrings.add('<header class="slds-media slds-media_center slds-has-flexi-truncate">');
+                myPWStrings.add('<div class="slds-media__figure">');
+                myPWStrings.add('<span class="slds-icon_container slds-icon-standard-case" title="process ">');
+                myPWStrings.add('<svg class="slds-icon slds-icon_small" aria-hidden="true"><use xlink:href="/_slds/icons/standard-sprite/svg/symbols.svg#approval"></use></svg>');
+                myPWStrings.add('<span class="slds-assistive-text">未承認申請</span></span> </div>');
+                myPWStrings.add('<div class="slds-media__body"><h2 class="slds-card__header-title"><span>未承認の申請があります');
+
+                myPWStrings.add('<div class="slds-dropdown-trigger slds-dropdown-trigger_click"><button class="slds-button slds-button_icon slds-button_icon slds-button_icon-container slds-button_icon-small slds-global-actions__notifications slds-global-actions__item-action slds-incoming-notification" aria-live="assertive" aria-atomic="true">');
+                myPWStrings.add('<svg class="slds-button__icon slds-global-header__icon" aria-hidden="true"><use xlink:href="/_slds/icons/utility-sprite/svg/symbols.svg#approval"></use></svg></button>');
+                myPWStrings.add('<span aria-hidden="true" class="slds-notification-badge slds-incoming-notification slds-show-notification">' + myPWhasWorkitems.size() + '</span></div>');
+
+                myPWStrings.add('</span> <a href="/lightning/o/ProcessInstanceWorkitem/home">一覧はこちら</a></h2></div></header></div>');
+                myPWStrings.add('<div class="slds-card__body slds-card__body_inner">');
+
+                //String:object名 LIST:各object毎のリスト
+                Map<String,LIST<id>> objectIdMap = new Map<String,LIST<id>>();
+                //どのオブジェクトに関するデータが来るかわからないのでオブジェクト毎に分けてMapに格納する
+                for(ProcessInstance p : myPWhasWorkitems){
+                    LIST<id> tmp = new LIST<id>();
+                    if(objectIdMap.get(p.TargetObjectId.getSObjectType().getDescribe().getName())!=NULL){
+                        tmp = objectIdMap.get(p.TargetObjectId.getSObjectType().getDescribe().getName());
+                    }
+                    tmp.add(p.TargetObjectId);
+                    String objectType = p.TargetObjectId.getSObjectType().getDescribe().getName();
+                    objectIdMap.put(objectType,tmp);
+                }
+                Set <String> objectSet = new Set<String>();
+                objectSet = objectIdMap.keySet();
+
+                Map<ID,String> objectNameMap = new Map<ID,String>();
+                for(String o : objectSet){
+                    LIST<ID> objIds = new LIST<ID>();
+                    objIds = objectIdMap.get(o);
+                    LIST<sObject> objects = Database.query('select id, Name From ' + o + ' Where id = :objIds');
+                    system.debug('objects ' + objects);
+                    for(sObject s : objects){
+                        objectNameMap.put(s.id, (String)s.get('Name'));//Database.queryで取得したリストからデータを取得するにはgetを使う
+                    }
+                }
+
+                myPWStrings.add('<table class="slds-table slds-table_cell-buffer slds-table_bordered slds-table_striped"><thead><tr class="slds-line-height_reset">');
+                myPWStrings.add('<th class="slds-text-title_caps" scope="col"><div class="slds-truncate" title="Account Name">承認画面</div></th>');
+                myPWStrings.add('<th class="slds-text-title_caps" scope="col"><div class="slds-truncate" title="前承認者">前承認者</div></th>');
+                myPWStrings.add('<th class="slds-text-title_caps" scope="col"><div class="slds-truncate" title="Object Name">Object Name</div></th>');
+                myPWStrings.add('</tr></thead><tbody>');
+
+                for(ProcessInstance p : myPWhasWorkitems){
+                    if(p.Workitems.size()>0){
+                        //ElapsedTimeInDays、ElapsedTimeInHours、ElapsedTimeInMinutesは日数・時間数・分数なはずなのだが、実際に表示してみるとうまくいかないので誰か分かったら教えてほしい。ここの処理ができれば、どの程度時間が経ってるのか表示ができるのだが…
+                        String elapsedtime;
+                        if(p.ElapsedTimeInDays >= 1){
+                            elapsedtime = p.ElapsedTimeInDays + '日経過' ;
+                        }else if (p.ElapsedTimeInDays < 1 && p.ElapsedTimeInHours >= 1){
+                             elapsedtime = p.ElapsedTimeInHours + '時間経過';
+                        }else if (p.ElapsedTimeInDays < 1 && p.ElapsedTimeInHours < 1){
+                            elapsedtime = p.ElapsedTimeInMinutes + '分経過';
+                        }
+                        String lastActor;
+                        if(objectNameMap.get(p.LastActorId) != NULL){
+                            lastActor = '最終承認：' + objectNameMap.get(p.LastActorId);
+                        }else{
+                            lastActor = '<span style="font-size:xx-small;">あなたが最初の承認者です</span>';
+                        }
+
+                        myPWStrings.add('<tr class="slds-hint-parent">');
+
+                        LIST<ID> actorIds = new LIST<ID>();
+                        for(ProcessInstanceWorkitem w : p.Workitems){
+                            actorIds.add(w.ActorId);
+                        }
+                        for(ProcessInstanceWorkitem w : p.Workitems){
+                            myPWStrings.add('<td data-label="承認画面へ"><div class="slds-truncate" title="Cloudhub"><a href="/' + w.id + '"><button class="slds-button slds-button_neutral"><span class="slds-icon_container slds-icon-utility-announcement"><svg class="slds-icon slds-icon-text-default slds-icon_x-small" aria-hidden="true"><use xlink:href="/_slds/icons/utility-sprite/svg/symbols.svg#approval"></use></svg></span></button></a></div></td>');
+                            myPWStrings.add('<td data-label="前承認者"><div class="slds-truncate">' + lastActor + '</div></td>');
+                        }
+                        myPWStrings.add('<td data-label="Object Name" scope="row"><div class="slds-truncate"><a href="/' + p.TargetObjectId + '">' + objectNameMap.get(p.TargetObjectId) + '</a></div></td>');
+
+                        myPWStrings.add('</tr>');
+                    }
+                }
+                myPWStrings.add('</tbody></table>');     
+            }else{
+                //データがない場合
+                myPWStrings.add('<div class="slds-dropdown-trigger slds-dropdown-trigger_click"><button class="slds-button slds-button_icon slds-button_icon slds-button_icon-container slds-button_icon-small slds-global-actions__notifications slds-global-actions__item-action slds-incoming-notification" aria-live="assertive" aria-atomic="true">');
+                myPWStrings.add('<svg class="slds-button__icon slds-global-header__icon" aria-hidden="true"><use xlink:href="/_slds/icons/utility-sprite/svg/symbols.svg#approval"></use></svg></button>');
+                myPWStrings.add('<span aria-hidden="true" class="slds-notification-badge slds-incoming-notification slds-show-notification">0</span></div>');
+            }
+
+        String myProcessInstanceWorkitemList = String.join(myPWStrings,'\n');
+        return myProcessInstanceWorkitemList;
+    }    
+}
